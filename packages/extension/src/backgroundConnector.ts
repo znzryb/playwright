@@ -35,7 +35,7 @@ export class BackgroundConnector {
   private _sessions = new Map<string, Promise<RelayConnection>>();
   status = 'Waiting for pairing';
 
-  constructor(private _onSession: (connection: RelayConnection, clientName: string) => void) {
+  constructor(private _onSession: (connection: RelayConnection, clientName: string) => Promise<void>) {
     chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === alarmName) this._check(); });
     chrome.runtime.onStartup.addListener(() => { void this._configure(); });
     chrome.storage.onChanged.addListener((_changes, area) => { if (area === 'local') void this._configure(); });
@@ -99,11 +99,9 @@ export class BackgroundConnector {
       this.status = event.code === 1008 ? 'Pairing failed' : 'Disconnected; retrying';
       this._schedule(event.code === 4003 ? bridgeTiming.timeoutRetry : retryDelay(++this._attempt));
     });
-    socket.addEventListener('message', event => {
-      if (!this._ready || this._socket !== socket)
-        return;
+    const pendingMessages: any[] = [];
+    const handleMessage = (message: any) => {
       try {
-        const message = JSON.parse(event.data);
         if (message.type === 'pong')
           this._lastPong = Date.now();
         else if (message.type === 'session')
@@ -114,6 +112,16 @@ export class BackgroundConnector {
           void session?.then(connection => connection.close('MCP disconnected')).catch(() => {});
         }
       } catch { socket.close(1008, 'Invalid bridge message'); }
+    };
+    socket.addEventListener('message', event => {
+      if (this._socket !== socket) return;
+      try {
+        const message = JSON.parse(event.data);
+        if (!['session', 'remove', 'pong'].includes(message.type)) return;
+        if (this._ready) handleMessage(message);
+        else if (pendingMessages.length < 1000) pendingMessages.push(message);
+        else socket.close(1008, 'Too many pending messages');
+      } catch { socket.close(1008, 'Invalid bridge message'); }
     });
     void authenticate(socket, this._key, 'extension').then(() => {
       if (this._socket !== socket)
@@ -122,6 +130,8 @@ export class BackgroundConnector {
       this._attempt = 0;
       this._lastPong = Date.now();
       this.status = 'Connected';
+      for (const message of pendingMessages) handleMessage(message);
+      pendingMessages.length = 0;
       this._heartbeat = setInterval(() => this._ping(), bridgeTiming.heartbeat);
     }).catch(() => { if (this._socket === socket) socket.close(1008, 'Authentication failed'); });
   }
@@ -163,7 +173,7 @@ export class BackgroundConnector {
       if (this._sessions.get(session.id) !== pending) { connection.close('Session removed'); return; }
       const cleanup = () => { if (this._sessions.get(session.id) === pending) this._sessions.delete(session.id); };
       // The tab-group callback installs its own onclose; preserve both callbacks.
-      this._onSession(connection, session.clientName);
+      await this._onSession(connection, session.clientName);
       const onclose = connection.onclose;
       connection.onclose = reason => { cleanup(); onclose?.(reason); };
     } catch {

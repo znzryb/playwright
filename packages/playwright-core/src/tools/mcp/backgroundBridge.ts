@@ -92,6 +92,7 @@ export class BackgroundBridge {
   private _retry?: NodeJS.Timeout;
   private _closed = false;
   private _generation = 0;
+  private _registered = false;
   constructor(private _key: string, private _session: BackgroundSession, private _onError: (error: Error) => void) {}
 
   async start(): Promise<void> { await this._connect(); }
@@ -171,11 +172,14 @@ export class BackgroundBridge {
       await authenticateClient(socket, this._key);
       if (this._closed || generation !== this._generation) { socket.close(); return; }
       socket.send(JSON.stringify({ type: 'register', session: this._session }));
+      this._registered = true;
       const heartbeat = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'ping' })); }, 20000);
       socket.once('close', () => { clearInterval(heartbeat); this._scheduleReconnect(); });
     } catch (error: any) {
-      if (!this._closed)
-        this._onError(error);
+      if (!this._closed) {
+        if (this._registered) this._scheduleReconnect();
+        else this._onError(error);
+      }
     }
   }
 
