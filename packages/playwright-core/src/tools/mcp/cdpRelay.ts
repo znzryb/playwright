@@ -126,7 +126,7 @@ export class CDPRelayServer {
   }
 
   async start(): Promise<void> {
-    this._wsHost = await this._wsServer.listen(0, undefined, '');
+    this._wsHost = await this._wsServer.listen(0, process.env.PLAYWRIGHT_MCP_EXTENSION_NO_FOCUS === '1' ? '127.0.0.1' : undefined, '');
   }
 
   cdpEndpoint() {
@@ -158,7 +158,8 @@ export class CDPRelayServer {
     }, deadline);
     if (timedOut) {
       const profile = this._profileDirectory ? ` "${this._profileDirectory}"` : '';
-      throw new Error(`Playwright extension did not connect within ${extensionConnectionTimeout / 1000}s after opening the connect page. Make sure the extension is installed in the Chrome profile${profile} and PLAYWRIGHT_MCP_EXTENSION_TOKEN matches its token.`);
+      const mode = process.env.PLAYWRIGHT_MCP_EXTENSION_NO_FOCUS === '1' ? 'through the background bridge (no browser was launched)' : 'after opening the connect page';
+      throw new Error(`Playwright extension did not connect within ${extensionConnectionTimeout / 1000}s ${mode}. Check the extension profile${profile}, port and pairing token.`);
     }
     debugLogger('Extension connection established');
   }
