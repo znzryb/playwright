@@ -93,7 +93,7 @@ const ConnectApp: React.FC = () => {
       // once the user clicks Allow.
       await chrome.runtime.sendMessage({ type: 'connectionRequested', mcpRelayUrl: relayUrl });
 
-      const expectedToken = getOrCreateAuthToken();
+      const expectedToken = await getOrCreateAuthToken();
       const token = params.get('token');
       // With the token bypass, this page becomes the connected tab; do not expose the token in its URL.
       if (token) {

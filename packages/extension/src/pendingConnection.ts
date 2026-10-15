@@ -15,6 +15,7 @@
  */
 
 import { RelayConnection, debugLog } from './relayConnection';
+import { authenticate } from './backgroundProtocol';
 
 // Relay URLs recorded by `connectionRequested`, keyed by the connect page tab
 // id. The relay WebSocket opens lazily in `take` once the user clicks Allow.
@@ -43,18 +44,21 @@ export class PendingConnections {
   }
 }
 
-async function openRelayConnection(mcpRelayUrl: string): Promise<RelayConnection> {
+export async function openRelayConnection(mcpRelayUrl: string, key?: string): Promise<RelayConnection> {
   try {
     const socket = new WebSocket(mcpRelayUrl);
     await new Promise<void>((resolve, reject) => {
-      socket.onopen = () => resolve();
+      socket.onopen = () => { if (!key) resolve(); };
+      if (key)
+        void authenticate(socket, key, 'relay').then(resolve, reject);
       socket.onerror = () => reject(new Error('WebSocket error'));
       setTimeout(() => reject(new Error('Connection timeout')), 5000);
     });
     return new RelayConnection(socket);
   } catch (error: any) {
     const message = `Failed to connect to MCP relay: ${error.message}`;
-    debugLog(message);
+    if (!key)
+      debugLog(message);
     throw new Error(message);
   }
 }

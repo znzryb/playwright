@@ -27,6 +27,7 @@
  */
 
 import { spawn } from 'child_process';
+import { randomBytes } from 'crypto';
 import os from 'os';
 
 import debug from 'debug';
@@ -40,6 +41,7 @@ import { registry } from '../../server/registry/index';
 import { playwrightExtensionId } from '../utils/extension';
 import { logUnhandledError } from './log';
 import { ExtensionProtocolV2 } from './cdpRelayV2';
+import { BackgroundBridge, authenticateServer } from './backgroundBridge';
 import * as protocol from './protocol';
 
 import type websocket from 'ws';
@@ -75,6 +77,8 @@ export class CDPRelayServer {
   private _protocolVersion: number;
   private _token?: string;
   private _handler: ExtensionProtocolV2;
+  private _backgroundBridge?: BackgroundBridge;
+  private _backgroundKey = randomBytes(32).toString('hex');
   private _extensionConnectionPromise = new ManualPromise<void>();
 
   constructor(browserChannel: string, executablePath?: string, customUserDataDir?: string, profileDirectory?: string) {
@@ -109,7 +113,12 @@ export class CDPRelayServer {
         debugLogger(`New connection to ${url.pathname}`);
         if (url.pathname === this._cdpPath)
           this._handlePlaywrightConnection(ws);
-        else
+        else if (process.env.PLAYWRIGHT_MCP_EXTENSION_NO_FOCUS === '1') {
+          if (request.headers.origin !== 'chrome-extension://' + playwrightExtensionId) {
+            ws.close(1008, 'Invalid origin'); return undefined;
+          }
+          void authenticateServer(ws, this._backgroundKey, 'relay').then(() => this._handleExtensionConnection(ws)).catch(() => {});
+        } else
           this._handleExtensionConnection(ws);
         return undefined;
       },
@@ -130,7 +139,16 @@ export class CDPRelayServer {
 
   async establishExtensionConnection(clientName: string) {
     debugLogger('Establishing extension connection');
-    await this._openConnectPageInBrowser(clientName);
+    if (process.env.PLAYWRIGHT_MCP_EXTENSION_NO_FOCUS === '1') {
+      if (!this._token)
+        throw new Error('Background mode requires PLAYWRIGHT_MCP_EXTENSION_TOKEN. Pair through the extension settings.');
+      this._backgroundBridge = new BackgroundBridge(this._token, {
+        id: this._extensionPath, url: this.extensionEndpoint(), key: this._backgroundKey, clientName,
+      }, error => this._extensionConnectionPromise.reject(error));
+      await this._backgroundBridge.start();
+    } else {
+      await this._openConnectPageInBrowser(clientName);
+    }
     debugLogger('Waiting for incoming extension connection');
     // Without a token the user has to approve the connection in the browser, which can take arbitrarily long.
     const deadline = this._token ? monotonicTime() + extensionConnectionTimeout : 0;
@@ -191,6 +209,7 @@ export class CDPRelayServer {
   }
 
   stop(): void {
+    this._backgroundBridge?.close();
     this._closeConnections('Server stopped');
     void this._wsServer.close().catch(logUnhandledError);
   }

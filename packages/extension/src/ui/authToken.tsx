@@ -14,17 +14,19 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { CopyToClipboard } from './copyToClipboard';
 import * as icons from './icons';
 import './authToken.css';
 
 export const AuthTokenSection: React.FC<{}> = ({}) => {
-  const [authToken, setAuthToken] = useState<string>(getOrCreateAuthToken);
+  const [authToken, setAuthToken] = useState('');
+  useEffect(() => { void getOrCreateAuthToken().then(setAuthToken); }, []);
 
-  const onRegenerateToken = useCallback(() => {
+  const onRegenerateToken = useCallback(async () => {
     const newToken = generateAuthToken();
     localStorage.setItem('auth-token', newToken);
+    await chrome.storage.local.set({ 'auth-token': newToken });
     setAuthToken(newToken);
   }, []);
 
@@ -62,11 +64,13 @@ function generateAuthToken(): string {
       });
 }
 
-export const getOrCreateAuthToken = (): string => {
-  let token = localStorage.getItem('auth-token');
+export const getOrCreateAuthToken = async (): Promise<string> => {
+  const stored = await chrome.storage.local.get('auth-token');
+  let token = stored['auth-token'] || localStorage.getItem('auth-token');
   if (!token) {
     token = generateAuthToken();
     localStorage.setItem('auth-token', token);
   }
+  await chrome.storage.local.set({ 'auth-token': token });
   return token;
 };

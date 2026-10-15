@@ -81,7 +81,7 @@ export class ConnectedTabGroup {
 
   onclose?: () => void;
 
-  constructor(connection: RelayConnection, selectedTab: chrome.tabs.Tab, clientName: string | undefined, groupStyle: GroupStyle, isTabReserved: (tabId: number) => boolean) {
+  constructor(connection: RelayConnection, selectedTab: chrome.tabs.Tab | undefined, clientName: string | undefined, groupStyle: GroupStyle, isTabReserved: (tabId: number) => boolean) {
     this.clientName = clientName;
     this.groupStyle = groupStyle;
     this._isTabReserved = isTabReserved;
@@ -97,7 +97,8 @@ export class ConnectedTabGroup {
     // handshake. The relay holds Playwright-side CDP traffic until
     // `didInitialize` arrives, so it sees a fully populated tab model by the
     // time it handles `Target.setAutoAttach`.
-    this._connection.attachTab(selectedTab);
+    if (selectedTab)
+      this._connection.attachTab(selectedTab);
     this._connection.didInitialize();
   }
 

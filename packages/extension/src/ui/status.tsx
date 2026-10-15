@@ -33,9 +33,13 @@ type Connection = {
 
 const StatusApp: React.FC = () => {
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [bridgeStatus, setBridgeStatus] = useState('');
+  const [port, setPort] = useState('8765');
+  const [portMessage, setPortMessage] = useState('');
 
   const loadStatus = async () => {
     const response = await chrome.runtime.sendMessage({ type: 'getConnectionStatus' });
+    setBridgeStatus(response.bridgeStatus ?? '');
     const statuses = (response.connections ?? []) as ConnectionStatus[];
     const loaded = await Promise.all(statuses.map(async ({ id, clientName, connectedTabIds }) => {
       const tabs = await Promise.all(connectedTabIds.map(tabId => chrome.tabs.get(tabId).catch(() => undefined)));
@@ -46,6 +50,7 @@ const StatusApp: React.FC = () => {
 
   useEffect(() => {
     void loadStatus();
+    void chrome.storage.local.get('bridge-port').then(settings => setPort(String(settings['bridge-port'] ?? 8765)));
   }, []);
 
   const openTab = async (tabId: number) => {
@@ -61,6 +66,18 @@ const StatusApp: React.FC = () => {
   return (
     <div className='app-container'>
       <div className='content-wrapper'>
+        <section>
+          <h2>ZNZRYB background connection</h2>
+          <p>{bridgeStatus}</p>
+          <label>Local connection port <input aria-label='Local connection port' type='number' value={port} onChange={event => setPort(event.target.value)} /></label>
+          <button onClick={async () => {
+            const value = Number(port);
+            if (!Number.isInteger(value) || value < 1 || value > 65535) { setPortMessage('Enter a port from 1 to 65535'); return; }
+            await chrome.storage.local.set({ 'bridge-port': value });
+            setPortMessage('Saved');
+          }}>Save</button>
+          <p>{portMessage}</p>
+        </section>
         {connections.length > 0 ? (
           connections.map(connection => (
             <div className='connection' key={connection.id}>
