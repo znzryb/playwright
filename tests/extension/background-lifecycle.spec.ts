@@ -26,14 +26,14 @@ function loadModule(file: string, globals: Record<string, any> = {}) {
   return module.exports;
 }
 
-test('Claude timing constants, backoff growth, jitter and cap', () => {
+test('discovery backoff stays below the MCP connection deadline', () => {
   const { bridgeTiming, retryDelay } = loadModule('backgroundProtocol.ts');
-  expect({ ...bridgeTiming }).toEqual({ heartbeat: 20000, alarm: 30000, retryInitial: 2000, retryMultiplier: 1.5, retryMax: 300000, connectTimeout: 30000, timeoutRetry: 5000, pongTimeout: 90000 });
+  expect({ ...bridgeTiming }).toEqual({ heartbeat: 20000, alarm: 30000, retryInitial: 2000, retryMultiplier: 1.5, retryMax: 5000, connectTimeout: 30000, timeoutRetry: 5000, pongTimeout: 90000 });
   expect([1, 2, 3].map(attempt => retryDelay(attempt, 0.5))).toEqual([2000, 3000, 4500]);
   expect(retryDelay(1, 0)).toBe(1600);
   expect(retryDelay(1, 1)).toBe(2400);
-  expect(retryDelay(100, 0)).toBe(240000);
-  expect(retryDelay(100, 1)).toBe(300000);
+  expect(retryDelay(100, 0)).toBe(4000);
+  expect(retryDelay(100, 1)).toBe(5000);
 });
 
 test('controlled clock covers connect watchdog, timeout retry and stale pong', async () => {

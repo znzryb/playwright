@@ -16,7 +16,7 @@
 
 export const bridgeTiming = {
   heartbeat: 20000, alarm: 30000, retryInitial: 2000, retryMultiplier: 1.5,
-  retryMax: 300000, connectTimeout: 30000, timeoutRetry: 5000, pongTimeout: 90000,
+  retryMax: 5000, connectTimeout: 30000, timeoutRetry: 5000, pongTimeout: 90000,
 };
 
 export function retryDelay(attempt: number, random = Math.random()): number {

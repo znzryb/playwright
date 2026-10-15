@@ -26,9 +26,9 @@ Both parties prove knowledge of the token using fresh nonces and HMAC-SHA-256. D
 
 Disconnects do not replay input or previously issued actions. A stopped worker or disconnected browser context is rebuilt on the next tool call; existing web pages remain open. Regenerating the pairing token requires updating the MCP environment and restarting MCP.
 
-## Claude-compatible lifecycle
+## Background connection lifecycle
 
-These values match the installed Claude extension 1.0.100 WebSocket implementation:
+Heartbeat and watchdog timings follow the installed Claude extension. Discovery retries are capped at 5 seconds so a server started after a long idle period is found within the MCP 30-second connection deadline:
 
 | Setting | Value |
 | --- | --- |
@@ -37,7 +37,7 @@ These values match the installed Claude extension 1.0.100 WebSocket implementati
 | Initial retry base | 2 seconds |
 | Retry multiplier | 1.5 |
 | Retry jitter | 80–120% |
-| Retry cap | 300 seconds |
+| Retry cap | 5 seconds |
 | Connecting watchdog threshold | 30 seconds |
 | Retry after connecting timeout | 5 seconds |
 | Stale pong threshold | 90 seconds |
