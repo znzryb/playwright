@@ -19,7 +19,7 @@ import net from 'net';
 import http from 'http';
 import { WebSocketServer } from 'ws';
 import { chromium } from 'playwright';
-import { test, expect, extensionId } from './extension-fixtures';
+import { test, expect, extensionId, clickAllowAndSelect } from './extension-fixtures';
 
 const background = test.extend<{
   setup: { context: any, sw: any, token: string, port: number, executablePath: string, marker: string, active: () => Promise<number> },
@@ -199,4 +199,29 @@ background('extension reload recovers without replaying input', async ({ setup, 
   // Replace the fixture's recorders after a worker restart without accessing user pages.
   await newWorker.evaluate(() => { (globalThis as any).__focusCalls = []; });
   await client.close();
+});
+
+test('ordinary extension mode remains compatible in a headless browser', async ({ pathToExtension, startClient, server }, testInfo) => {
+  server.setContent('/legacy.html', '<title>Legacy controlled</title>', 'text/html');
+  const argsFile = testInfo.outputPath('legacy-args.json');
+  const executablePath = testInfo.outputPath('capture-legacy');
+  await fs.writeFile(executablePath, '#!/usr/bin/env node\nrequire("fs").writeFileSync(' + JSON.stringify(argsFile) + ', JSON.stringify(process.argv.slice(2)));\n', { mode: 0o755 });
+  const context = await chromium.launchPersistentContext(testInfo.outputPath('legacy-profile'), {
+    channel: 'chromium', headless: true, args: [`--disable-extensions-except=${pathToExtension}`, `--load-extension=${pathToExtension}`],
+  });
+  try {
+    await context.pages()[0].goto(server.PREFIX + '/legacy.html');
+    const { client } = await startClient({ args: ['--extension', '--executable-path', executablePath], env: { PLAYWRIGHT_MCP_EXTENSION_NO_FOCUS: '0', PLAYWRIGHT_MCP_EXTENSION_TOKEN: '' } });
+    const navigation = client.callTool({ name: 'browser_navigate', arguments: { url: server.HELLO_WORLD } });
+    await expect.poll(() => fs.readFile(argsFile, 'utf8').catch(() => '')).not.toBe('');
+    const args: string[] = JSON.parse(await fs.readFile(argsFile, 'utf8'));
+    const url = new URL(args.find(arg => arg.startsWith('chrome-extension://'))!);
+    // Only the test opens the authorization page, inside this headless browser.
+    url.searchParams.set('noFocus', '1');
+    const connect = await context.newPage();
+    await connect.goto(url.href);
+    await clickAllowAndSelect(connect, 'Legacy controlled');
+    expect(await navigation).toHaveResponse({ snapshot: expect.stringContaining('Hello, world!') });
+    await client.close();
+  } finally { await context.close(); }
 });
