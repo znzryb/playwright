@@ -211,4 +211,3 @@ test(`pending attach is released when the connection closes`, {
   });
   await expect.poll(isAttached).toBe(false);
 });
-

@@ -32,7 +32,7 @@ Opening the initial connection/authorization page still uses Chrome's process-si
 Regression test:
 
 ```sh
-npm run test-extension -- tab-management.spec.ts --workers=1
+npm run test-extension -- background.spec.ts --workers=1
 ```
 
-The regression observes Chrome's active tab while MCP creates/selects pages and fills/clicks controls in the background. It also records extension focus API calls during connection. It does not measure macOS foreground application focus.
+The regression runs Chromium headlessly and captures the bootstrap URL instead of launching a visible browser. It observes Chrome's active tab while MCP creates/selects pages and fills/clicks controls in the background. It also records extension focus API calls during connection. It does not measure macOS foreground application focus.

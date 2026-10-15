@@ -20,6 +20,7 @@ import { test, expect, clickAllowAndSelect } from './extension-fixtures';
 
 test('background mode preserves the user tab during connect, new, select and input', async ({ startClient, pathToExtension, server }, testInfo) => {
   server.setContent('/background.html', '<title>Background</title><input aria-label="Name"><button onclick="this.textContent = \'Clicked\'">Click</button>', 'text/html');
+  server.setContent('/controlled.html', '<title>MCP Controlled</title>', 'text/html');
   // Capture the bootstrap URL instead of launching a visible singleton browser.
   const argsFile = testInfo.outputPath('connect-args.json');
   const executablePath = testInfo.outputPath('capture-connect');
@@ -32,7 +33,7 @@ test('background mode preserves the user tab during connect, new, select and inp
   });
   try {
     const controlledPage = browserContext.pages()[0];
-    await controlledPage.goto(server.PREFIX + '/welcome.html');
+    await controlledPage.goto(server.PREFIX + '/controlled.html');
     const userPage = await browserContext.newPage();
     await userPage.goto(server.EMPTY_PAGE);
     const { client } = await startClient({
@@ -60,7 +61,7 @@ test('background mode preserves the user tab during connect, new, select and inp
     const connectPagePromise = browserContext.waitForEvent('page');
     await sw.evaluate(url => (globalThis as any).chrome.tabs.create({ url, active: false }), connectUrl);
     const connectPage = await connectPagePromise;
-    await clickAllowAndSelect(connectPage, 'Welcome');
+    await clickAllowAndSelect(connectPage, 'MCP Controlled');
     await navigate;
     expect(await sw.evaluate(() => (globalThis as any).__focusCalls)).toEqual([]);
 
@@ -72,11 +73,11 @@ test('background mode preserves the user tab during connect, new, select and inp
     const userTabId = await activeTab();
     expect(userTabId).toBeDefined();
 
-    expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'new', url: server.PREFIX + '/background.html' } })).toHaveResponse({});
+    expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'new', url: server.PREFIX + '/background.html' } })).toHaveResponse({ isError: undefined });
     expect(await activeTab()).toBe(userTabId);
-    expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: 0 } })).toHaveResponse({});
+    expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: 0 } })).toHaveResponse({ isError: undefined });
     expect(await activeTab()).toBe(userTabId);
-    expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: 1 } })).toHaveResponse({});
+    expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: 1 } })).toHaveResponse({ isError: undefined });
     expect(await client.callTool({
       name: 'browser_run_code_unsafe',
       arguments: { code: 'async page => { await page.getByRole("textbox").fill("background input"); await page.getByRole("button").click(); return [await page.getByRole("textbox").inputValue(), await page.getByRole("button").textContent()]; }' },
