@@ -16,7 +16,8 @@
 
 import http from 'http';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
-import { WebSocket, WebSocketServer } from 'ws';
+import ws from 'ws';
+import type { WebSocket, WebSocketServer } from 'ws';
 import { playwrightExtensionId } from '../utils/extension';
 
 const origin = 'chrome-extension://' + playwrightExtensionId;
@@ -113,7 +114,7 @@ export class BackgroundBridge {
       throw error;
     }
     this._server = server;
-    const wss = this._wss = new WebSocketServer({ server, maxPayload: 65536, path: '/bridge' });
+    const wss = this._wss = new ws.Server({ server, maxPayload: 65536, path: '/bridge' });
     wss.on('connection', (socket, request) => {
       const peerOrigin = request.headers.origin;
       if (peerOrigin && peerOrigin !== origin) {
@@ -157,7 +158,7 @@ export class BackgroundBridge {
 
   private _broadcast(message: unknown): void {
     for (const socket of this._extensions) {
-      if (socket.readyState === WebSocket.OPEN)
+      if (socket.readyState === ws.OPEN)
         socket.send(JSON.stringify(message));
     }
   }
@@ -167,13 +168,13 @@ export class BackgroundBridge {
       return;
     await this._listen();
     const generation = ++this._generation;
-    const socket = this._socket = new WebSocket('ws://127.0.0.1:' + bridgePort() + '/bridge', { maxPayload: 65536 });
+    const socket = this._socket = new ws('ws://127.0.0.1:' + bridgePort() + '/bridge', { maxPayload: 65536 });
     try {
       await authenticateClient(socket, this._key);
       if (this._closed || generation !== this._generation) { socket.close(); return; }
       socket.send(JSON.stringify({ type: 'register', session: this._session }));
       this._registered = true;
-      const heartbeat = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'ping' })); }, 20000);
+      const heartbeat = setInterval(() => { if (socket.readyState === ws.OPEN) socket.send(JSON.stringify({ type: 'ping' })); }, 20000);
       socket.once('close', () => { clearInterval(heartbeat); this._scheduleReconnect(); });
     } catch (error: any) {
       if (!this._closed) {
