@@ -40,8 +40,12 @@ export class ExtensionProtocolV2 {
   // relay — the model itself is oblivious to this phase.
   private _ready = new ManualPromise<void>();
 
-  constructor(sendCommand: SendCommand) {
-    this._model = new BrowserModel(sendCommand);
+  constructor(sendCommand: SendCommand, private readonly _noFocus = false) {
+    this._model = new BrowserModel((method, params) => {
+      if (this._noFocus && method === 'chrome.tabs.create')
+        params = [{ ...params[0], active: false }];
+      return sendCommand(method, params);
+    });
     void this._ready.catch(logUnhandledError);
   }
 
@@ -96,6 +100,11 @@ export class ExtensionProtocolV2 {
   // undefined to fall through to forwarding to the extension.
   async handleCDPCommand(method: string, params: any, sessionId: string | undefined): Promise<{ result: any } | undefined> {
     switch (method) {
+      case 'Page.bringToFront':
+      case 'Target.activateTarget':
+        if (this._noFocus)
+          return { result: {} };
+        return undefined;
       case 'Target.setAutoAttach': {
         if (sessionId)
           return undefined;

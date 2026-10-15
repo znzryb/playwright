@@ -90,7 +90,7 @@ export class CDPRelayServer {
         throw new Error('Extension not connected');
       return this._extensionConnection.send(method as keyof ExtensionCommandV2, params);
     };
-    this._handler = new ExtensionProtocolV2(sendCommand);
+    this._handler = new ExtensionProtocolV2(sendCommand, process.env.PLAYWRIGHT_MCP_EXTENSION_NO_FOCUS === '1');
 
     const uuid = crypto.randomUUID();
     this._cdpPath = `/cdp/${uuid}`;
@@ -156,6 +156,8 @@ export class CDPRelayServer {
     };
     url.searchParams.set('client', JSON.stringify(client));
     url.searchParams.set('protocolVersion', this._protocolVersion.toString());
+    if (process.env.PLAYWRIGHT_MCP_EXTENSION_NO_FOCUS === '1')
+      url.searchParams.set('noFocus', '1');
     if (this._token)
       url.searchParams.set('token', this._token);
     const href = url.toString();

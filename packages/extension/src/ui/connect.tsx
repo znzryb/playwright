@@ -140,6 +140,7 @@ const ConnectApp: React.FC = () => {
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'connectToTab',
+        focus: new URLSearchParams(window.location.search).get('noFocus') !== '1',
         tab,
         clientName: clientInfo,
       });

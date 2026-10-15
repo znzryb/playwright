@@ -211,3 +211,44 @@ test(`pending attach is released when the connection closes`, {
   });
   await expect.poll(isAttached).toBe(false);
 });
+
+
+test('background mode preserves the user tab during connect, new, select and input', async ({ startExtensionClient, server }) => {
+  server.setContent('/background.html', '<title>Background</title><input aria-label="Name"><button onclick="this.textContent = \'Clicked\'">Click</button>', 'text/html');
+  const { browserContext, client } = await startExtensionClient({ PLAYWRIGHT_MCP_EXTENSION_NO_FOCUS: '1' });
+  const [sw] = browserContext.serviceWorkers();
+  await sw.evaluate(() => {
+    const g = globalThis as any;
+    g.__focusCalls = [];
+    for (const [api, method] of [['tabs', 'update'], ['windows', 'update']]) {
+      const original = g.chrome[api][method].bind(g.chrome[api]);
+      g.chrome[api][method] = (...args: any[]) => {
+        g.__focusCalls.push([api, ...args]);
+        return original(...args);
+      };
+    }
+  });
+  await connectAndNavigate(browserContext, client, server.HELLO_WORLD);
+  expect(await sw.evaluate(() => (globalThis as any).__focusCalls)).toEqual([]);
+
+  const userPage = await browserContext.newPage();
+  await userPage.goto(server.EMPTY_PAGE);
+  await userPage.bringToFront();
+  const activeTab = () => sw.evaluate(async () => {
+    const tabs = await (globalThis as any).chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return tabs[0]?.id;
+  });
+  const userTabId = await activeTab();
+  expect(userTabId).toBeDefined();
+
+  expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'new', url: server.PREFIX + '/background.html' } })).toHaveResponse({});
+  expect(await activeTab()).toBe(userTabId);
+  expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: 0 } })).toHaveResponse({});
+  expect(await activeTab()).toBe(userTabId);
+  expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: 1 } })).toHaveResponse({});
+  expect(await client.callTool({
+    name: 'browser_run_code_unsafe',
+    arguments: { code: 'async page => { await page.getByRole("textbox").fill("background input"); await page.getByRole("button").click(); return [await page.getByRole("textbox").inputValue(), await page.getByRole("button").textContent()]; }' },
+  })).toHaveResponse({ result: expect.stringContaining('background input') });
+  expect(await activeTab()).toBe(userTabId);
+});
