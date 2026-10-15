@@ -36,9 +36,12 @@ export async function authenticate(socket: WebSocket, key: string, role: 'extens
   await new Promise<void>((resolve, reject) => {
     let challenge: string | undefined;
     let receivedChallenge = false;
-    const cleanup = () => { clearTimeout(timer); socket.removeEventListener('message', onMessage); socket.removeEventListener('close', fail); socket.removeEventListener('error', fail); };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onOpen = () => { timer = setTimeout(fail, 10000); };
+    const cleanup = () => { clearTimeout(timer); socket.removeEventListener('open', onOpen); socket.removeEventListener('message', onMessage); socket.removeEventListener('close', fail); socket.removeEventListener('error', fail); };
     const fail = () => { cleanup(); socket.close(); reject(new Error('Background bridge authentication failed')); };
-    const timer = setTimeout(fail, 10000);
+    socket.addEventListener('open', onOpen);
+    if (socket.readyState === WebSocket.OPEN) onOpen();
     const onMessage = async (event: MessageEvent) => {
       try {
         const message = JSON.parse(event.data);

@@ -16,8 +16,8 @@
 
 import http from 'http';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
-import ws from 'ws';
-import type { WebSocket, WebSocketServer } from 'ws';
+import ws, { WebSocketServer } from 'ws';
+import type { WebSocket } from 'ws';
 import { playwrightExtensionId } from '../utils/extension';
 
 const origin = 'chrome-extension://' + playwrightExtensionId;
@@ -114,7 +114,7 @@ export class BackgroundBridge {
       throw error;
     }
     this._server = server;
-    const wss = this._wss = new ws.Server({ server, maxPayload: 65536, path: '/bridge' });
+    const wss = this._wss = new WebSocketServer({ server, maxPayload: 65536, path: '/bridge' });
     wss.on('connection', (socket, request) => {
       const peerOrigin = request.headers.origin;
       if (peerOrigin && peerOrigin !== origin) {
