@@ -14,6 +14,8 @@ The existing MCP process hosts discovery. No native messaging host, additional a
 
 The launcher reads `PLAYWRIGHT_MCP_EXTENSION_TOKEN` from its environment or the existing `~/.codex/secrets/playwright-extension-token` file. A different file can be selected with `PLAYWRIGHT_MCP_EXTENSION_TOKEN_FILE`. For a fresh installation, use the token shown in extension settings to configure the MCP environment. Never put the token in command-line arguments, URLs, or logs.
 
+Background debugger attachments enable CDP focus emulation, as the installed Claude extension does. This keeps animation frames and trusted input working in inactive tabs without selecting a tab or bringing Canary to the foreground. Extension connections use `noDefaults: true`, so they otherwise skip Playwright's normal focus emulation.
+
 A connection alone creates no page. Listing tabs can return an empty list. Navigating or explicitly creating a tab creates a background task tab. Manual clicks on the extension and its status page keep normal user-directed behavior.
 
 ## Port and sessions

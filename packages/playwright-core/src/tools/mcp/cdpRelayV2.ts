@@ -41,10 +41,18 @@ export class ExtensionProtocolV2 {
   private _ready = new ManualPromise<void>();
 
   constructor(sendCommand: SendCommand, private readonly _noFocus = false) {
-    this._model = new BrowserModel((method, params) => {
+    this._model = new BrowserModel(async (method, params) => {
       if (this._noFocus && method === 'chrome.tabs.create')
         params = [{ ...params[0], active: false }];
-      return sendCommand(method, params);
+      const result = await sendCommand(method, params);
+      if (this._noFocus && method === 'chrome.debugger.attach') {
+        // Keep background pages rendering and receiving input without activating
+        // their tab or window. Extension connections skip Playwright's defaults.
+        await sendCommand('chrome.debugger.sendCommand', [
+          params[0], 'Emulation.setFocusEmulationEnabled', { enabled: true },
+        ]);
+      }
+      return result;
     });
     void this._ready.catch(logUnhandledError);
   }

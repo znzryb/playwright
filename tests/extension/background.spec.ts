@@ -84,11 +84,14 @@ background('background handshake creates no pages and input stays in background'
   expect(context.pages()).toHaveLength(pages);
   expect(await sw.evaluate(() => (globalThis as any).__createdTabs)).toEqual([]);
   expect(await active()).toBe(userTab);
-  server.setContent('/background.html', '<title>Background</title><input aria-label="Name"><button onclick="this.textContent=\'Clicked\'">Click</button>', 'text/html');
+  server.setContent('/background.html', '<title>Background</title><input aria-label="Name"><button onclick="this.textContent=event.isTrusted?\'Clicked\':\'Untrusted\'">Click</button>', 'text/html');
   expect(await client.callTool({ name: 'browser_navigate', arguments: { url: server.PREFIX + '/background.html' } })).toHaveResponse({ isError: undefined });
   expect(await client.callTool({ name: 'browser_run_code_unsafe', arguments: {
     code: 'async page => { await page.getByRole("textbox").fill("background input"); await page.getByRole("button").click(); return [await page.getByRole("textbox").inputValue(), await page.getByRole("button").textContent()]; }',
   } })).toHaveResponse({ result: expect.stringContaining('Clicked') });
+  expect(await client.callTool({ name: 'browser_run_code_unsafe', arguments: {
+    code: 'async page => { return await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve({ focused: document.hasFocus(), visible: !document.hidden })))); }',
+  } })).toHaveResponse({ result: expect.stringContaining('"focused":true,"visible":true') });
   expect(await client.callTool({ name: 'browser_take_screenshot', arguments: {} })).toHaveResponse({ isError: undefined });
   expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'new', url: server.EMPTY_PAGE } })).toHaveResponse({ isError: undefined });
   expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: 0 } })).toHaveResponse({ isError: undefined });
