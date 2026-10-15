@@ -16,6 +16,8 @@
 
 import fs from 'fs/promises';
 import net from 'net';
+import http from 'http';
+import { WebSocketServer } from 'ws';
 import { chromium } from 'playwright';
 import { test, expect, extensionId } from './extension-fixtures';
 
@@ -65,7 +67,8 @@ const background = test.extend<{
       });
       await use({ context, sw, token, port, executablePath, marker, active });
       expect(await fs.stat(marker).catch(() => null)).toBeNull();
-      expect(await sw.evaluate(() => (globalThis as any).__focusCalls)).toEqual([]);
+      const currentWorker = context.serviceWorkers()[0];
+      expect(await currentWorker.evaluate(() => (globalThis as any).__focusCalls ?? [])).toEqual([]);
     } finally { await context.close(); }
   },
 });
@@ -115,7 +118,7 @@ background('multiple MCP processes isolate sessions and take over discovery', as
   expect(await second.callTool({ name: 'browser_tabs', arguments: { action: 'list' } })).toHaveResponse({ result: expect.not.stringContaining('hello-world') });
   expect(await active()).toBe(userTab);
   await second.close(); await third.close();
-  await expect.poll(() => sw.evaluate(async () => (await (globalThis as any).chrome.runtime.sendMessage({ type: 'getConnectionStatus' }))?.connections?.length).catch(() => 0)).toBe(0);
+  await expect.poll(() => sw.evaluate(async () => (await (globalThis as any).chrome.tabs.query({})).filter((tab: any) => tab.groupId !== -1).length)).toBe(0);
 });
 
 background('wrong token fails without creating pages or launching Chrome', async ({ setup, startClient }) => {
@@ -127,4 +130,73 @@ background('wrong token fails without creating pages or launching Chrome', async
   const response = await client.callTool({ name: 'browser_tabs', arguments: { action: 'list' } });
   expect(response.isError).toBe(true);
   expect(context.pages()).toHaveLength(count);
+});
+
+background('occupied port reports an error without launching Chrome', async ({ setup, startClient }) => {
+  const { token, port, executablePath, context } = setup;
+  const count = context.pages().length;
+  const occupied = http.createServer((_request, response) => { response.writeHead(404); response.end(); });
+  await new Promise<void>(resolve => occupied.listen(port, '127.0.0.1', resolve));
+  try {
+    const { client } = await startClient({ args: ['--extension', '--executable-path', executablePath], env: {
+      PLAYWRIGHT_MCP_EXTENSION_NO_FOCUS: '1', PLAYWRIGHT_MCP_EXTENSION_TOKEN: token, PLAYWRIGHT_MCP_EXTENSION_BRIDGE_PORT: String(port),
+    } });
+    expect(await client.callTool({ name: 'browser_tabs', arguments: { action: 'list' } })).toHaveResponse({ isError: true, error: expect.stringContaining('Port is occupied') });
+    expect(context.pages()).toHaveLength(count);
+  } finally { await new Promise<void>(resolve => occupied.close(() => resolve())); }
+});
+
+background('extension rejects a forged server and ignores pre-auth sessions', async ({ setup }) => {
+  const { port, context, sw, active } = setup;
+  const userTab = await active();
+  const count = context.pages().length;
+  let connectionCount = 0;
+  let complete!: () => void;
+  const done = new Promise<void>(resolve => complete = resolve);
+  const malicious = new WebSocketServer({ port, host: '127.0.0.1' });
+  malicious.on('connection', socket => {
+    connectionCount++;
+    socket.send(JSON.stringify({ type: 'challenge', nonce: 'a'.repeat(64) }));
+    socket.once('message', () => {
+      socket.send(JSON.stringify({ type: 'session', session: { id: 'forged', url: 'ws://127.0.0.1:' + port + '/extension/forged', key: 'b'.repeat(64), clientName: 'forged' } }));
+      socket.send(JSON.stringify({ type: 'ready', proof: 'c'.repeat(64) }));
+    });
+    socket.on('close', () => complete());
+  });
+  try {
+    await done;
+    expect(connectionCount).toBe(1);
+    expect(context.pages()).toHaveLength(count);
+    expect(await sw.evaluate(() => (globalThis as any).__createdTabs)).toEqual([]);
+    expect(await active()).toBe(userTab);
+  } finally {
+    for (const socket of malicious.clients) socket.terminate();
+    await new Promise<void>(resolve => malicious.close(() => resolve()));
+  }
+});
+
+background('extension reload recovers without replaying input', async ({ setup, startClient, server }) => {
+  test.setTimeout(60000);
+  const { token, port, executablePath, context, sw } = setup;
+  server.setContent('/once.html', '<title>Once</title><button onclick="localStorage.setItem(\'clicks\', String(Number(localStorage.getItem(\'clicks\') || 0) + 1))">Click once</button>', 'text/html');
+  const { client } = await startClient({ args: ['--extension', '--executable-path', executablePath], env: {
+    PLAYWRIGHT_MCP_EXTENSION_NO_FOCUS: '1', PLAYWRIGHT_MCP_EXTENSION_TOKEN: token, PLAYWRIGHT_MCP_EXTENSION_BRIDGE_PORT: String(port),
+  } });
+  expect(await client.callTool({ name: 'browser_navigate', arguments: { url: server.PREFIX + '/once.html' } })).toHaveResponse({ isError: undefined });
+  expect(await client.callTool({ name: 'browser_run_code_unsafe', arguments: { code: 'async page => { await page.getByRole("button").click(); return await page.evaluate(() => localStorage.getItem("clicks")); }' } })).toHaveResponse({ result: expect.stringContaining('1') });
+  const taskPage = context.pages().find((page: any) => page.url().endsWith('/once.html'))!;
+  const count = context.pages().length;
+  const restarted = context.waitForEvent('serviceworker');
+  await sw.evaluate(() => (globalThis as any).chrome.runtime.reload()).catch(() => {});
+  const newWorker = await restarted;
+  // A disconnected CDP context is recreated on the next read-only tool call.
+  await expect.poll(async () => {
+    const result = await client.callTool({ name: 'browser_tabs', arguments: { action: 'list' } });
+    return result.isError ?? false;
+  }, { timeout: 45000 }).toBe(false);
+  expect(context.pages()).toHaveLength(count);
+  expect(await taskPage.evaluate(() => localStorage.getItem('clicks'))).toBe('1');
+  // Replace the fixture's recorders after a worker restart without accessing user pages.
+  await newWorker.evaluate(() => { (globalThis as any).__focusCalls = []; });
+  await client.close();
 });

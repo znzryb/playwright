@@ -169,6 +169,7 @@ export class BackgroundBridge {
     await this._listen();
     const generation = ++this._generation;
     const socket = this._socket = new ws('ws://127.0.0.1:' + bridgePort() + '/bridge', { maxPayload: 65536 });
+    socket.on('error', () => {});
     try {
       await authenticateClient(socket, this._key);
       if (this._closed || generation !== this._generation) { socket.close(); return; }
