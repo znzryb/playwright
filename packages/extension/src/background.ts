@@ -55,14 +55,12 @@ class PlaywrightExtension {
     this._cleanupPromise = cleanupStalePlaywrightGroups();
     this._backgroundConnector = new BackgroundConnector(async (connection, clientName) => {
       await this._cleanupPromise;
-      {
-        const id = ++this._lastConnectionId;
-        const taken = [...this._connections.values()].map(group => group.groupStyle);
-        const group = new ConnectedTabGroup(connection, undefined, clientName, uniqueGroupStyle(clientName, taken), tabId => this._pendingConnections.has(tabId));
-        const onclose = connection.onclose;
-        connection.onclose = reason => { this._connections.delete(id); onclose?.(reason); };
-        this._connections.set(id, group);
-      }
+      const id = ++this._lastConnectionId;
+      const taken = [...this._connections.values()].map(group => group.groupStyle);
+      const group = new ConnectedTabGroup(connection, undefined, clientName, uniqueGroupStyle(clientName, taken), tabId => this._pendingConnections.has(tabId));
+      const onclose = connection.onclose;
+      connection.onclose = reason => { this._connections.delete(id); onclose?.(reason); };
+      this._connections.set(id, group);
     });
   }
 
