@@ -175,7 +175,7 @@ background('extension rejects a forged server and ignores pre-auth sessions', as
   }
 });
 
-background('extension reload recovers without replaying input', async ({ setup, startClient, server }) => {
+background('extension worker restart recovers without replaying input', async ({ setup, startClient, server }) => {
   test.setTimeout(60000);
   const { token, port, executablePath, context, sw } = setup;
   server.setContent('/once.html', '<title>Once</title><button onclick="localStorage.setItem(\'clicks\', String(Number(localStorage.getItem(\'clicks\') || 0) + 1))">Click once</button>', 'text/html');
@@ -186,9 +186,22 @@ background('extension reload recovers without replaying input', async ({ setup, 
   expect(await client.callTool({ name: 'browser_run_code_unsafe', arguments: { code: 'async page => { await page.getByRole("button").click(); return await page.evaluate(() => localStorage.getItem("clicks")); }' } })).toHaveResponse({ result: expect.stringContaining('1') });
   const taskPage = context.pages().find((page: any) => page.url().endsWith('/once.html'))!;
   const count = context.pages().length;
-  const restarted = context.waitForEvent('serviceworker');
-  await sw.evaluate(() => (globalThis as any).chrome.runtime.reload()).catch(() => {});
-  const newWorker = await restarted;
+  const cdp = await context.newCDPSession(context.pages()[0]);
+  const event = (name: string, predicate: (params: any) => any): Promise<any> => new Promise(resolve => {
+    const listener = (params: any) => { const result = predicate(params); if (result !== undefined) { cdp.off(name, listener); resolve(result); } };
+    cdp.on(name, listener);
+  });
+  const version = event('ServiceWorker.workerVersionUpdated', ({ versions }) => versions[0]?.versionId);
+  const scope = event('ServiceWorker.workerRegistrationUpdated', ({ registrations }) => registrations[0]?.scopeURL);
+  await cdp.send('ServiceWorker.enable');
+  const versionId = await version;
+  const scopeURL = await scope;
+  const stopped = event('ServiceWorker.workerVersionUpdated', ({ versions }) => versions[0]?.runningStatus === 'stopped' ? true : undefined);
+  await cdp.send('ServiceWorker.stopWorker', { versionId });
+  await stopped;
+  const running = event('ServiceWorker.workerVersionUpdated', ({ versions }) => versions[0]?.runningStatus === 'running' ? true : undefined);
+  await cdp.send('ServiceWorker.startWorker', { scopeURL });
+  await running;
   // A disconnected CDP context is recreated on the next read-only tool call.
   await expect.poll(async () => {
     const result = await client.callTool({ name: 'browser_tabs', arguments: { action: 'list' } });
@@ -197,7 +210,8 @@ background('extension reload recovers without replaying input', async ({ setup, 
   expect(context.pages()).toHaveLength(count);
   expect(await taskPage.evaluate(() => localStorage.getItem('clicks'))).toBe('1');
   // Replace the fixture's recorders after a worker restart without accessing user pages.
-  await newWorker.evaluate(() => { (globalThis as any).__focusCalls = []; });
+  await sw.evaluate(() => { (globalThis as any).__focusCalls = []; });
+  await cdp.detach();
   await client.close();
 });
 

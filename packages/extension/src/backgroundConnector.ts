@@ -39,7 +39,10 @@ export class BackgroundConnector {
     chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === alarmName) this._check(); });
     chrome.runtime.onStartup.addListener(() => { void this._configure(); });
     chrome.storage.onChanged.addListener((_changes, area) => { if (area === 'local') void this._configure(); });
-    globalThis.addEventListener('online', () => { if (!this._ready) this._restart(); });
+    globalThis.addEventListener('online', () => {
+      const healthy = this._socket && (this._ready ? Date.now() - this._lastPong <= bridgeTiming.pongTimeout : Date.now() - this._startedAt <= bridgeTiming.connectTimeout);
+      if (!healthy) this._restart();
+    });
     void chrome.alarms.create(alarmName, { periodInMinutes: bridgeTiming.alarm / 60000 });
     void this._configure();
   }
@@ -96,7 +99,7 @@ export class BackgroundConnector {
       this._socket = undefined;
       this._ready = false;
       clearInterval(this._heartbeat);
-      this.status = event.code === 1008 ? 'Pairing failed' : 'Disconnected; retrying';
+      this.status = event.code === 4008 || event.code === 1008 ? 'Pairing failed' : 'Disconnected; retrying';
       this._schedule(event.code === 4003 ? bridgeTiming.timeoutRetry : retryDelay(++this._attempt));
     });
     const pendingMessages: any[] = [];
@@ -111,7 +114,7 @@ export class BackgroundConnector {
           this._sessions.delete(message.id);
           void session?.then(connection => connection.close('MCP disconnected')).catch(() => {});
         }
-      } catch { socket.close(1008, 'Invalid bridge message'); }
+      } catch { socket.close(4008, 'Invalid bridge message'); }
     };
     socket.addEventListener('message', event => {
       if (this._socket !== socket) return;
@@ -120,8 +123,8 @@ export class BackgroundConnector {
         if (!['session', 'remove', 'pong'].includes(message.type)) return;
         if (this._ready) handleMessage(message);
         else if (pendingMessages.length < 1000) pendingMessages.push(message);
-        else socket.close(1008, 'Too many pending messages');
-      } catch { socket.close(1008, 'Invalid bridge message'); }
+        else socket.close(4008, 'Too many pending messages');
+      } catch { socket.close(4008, 'Invalid bridge message'); }
     });
     void authenticate(socket, this._key, 'extension').then(() => {
       if (this._socket !== socket)
@@ -133,7 +136,7 @@ export class BackgroundConnector {
       for (const message of pendingMessages) handleMessage(message);
       pendingMessages.length = 0;
       this._heartbeat = setInterval(() => this._ping(), bridgeTiming.heartbeat);
-    }).catch(() => { if (this._socket === socket) socket.close(1008, 'Authentication failed'); });
+    }).catch(() => { if (this._socket === socket) socket.close(4008, 'Authentication failed'); });
   }
 
   private _schedule(delay: number): void {
